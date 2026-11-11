@@ -1,0 +1,11 @@
+{"lastUpdateDate": "2026-11-10", "count": "5", "divideNumber": "1", "divideSize": "1",
+ "announcement": [
+  {"sequenceNumber": "1", "registratedNumber": "T9234567890123", "process": "01", "correct": "0", "kind": "2", "country": "1", "latest": "1",
+   "registrationDate": "2023-10-01", "updateDate": "2023-10-01", "disposalDate": "", "expireDate": "", "name": "見本商事株式会社"},
+  {"sequenceNumber": "2", "registratedNumber": "T9111111111111", "process": "04", "correct": "0", "kind": "2", "country": "1", "latest": "1",
+   "registrationDate": "2023-10-01", "updateDate": "2026-11-05", "disposalDate": "2026-11-01", "expireDate": "", "name": "株式会社見本工業"},
+  {"sequenceNumber": "3", "registratedNumber": "T3987654321098", "process": "02", "correct": "0", "kind": "2", "country": "1", "latest": "1",
+   "registrationDate": "2024-04-01", "updateDate": "2026-10-20", "disposalDate": "", "expireDate": "", "name": "新見本ロジスティクス合同会社"},
+  {"sequenceNumber": "4", "registratedNumber": "T9555555555555", "process": "01", "correct": "0", "kind": "1", "country": "1", "latest": "1",
+   "registrationDate": "2023-10-01", "updateDate": "2023-10-01", "disposalDate": "", "expireDate": "2026-06-30", "name": ""}
+ ]}
