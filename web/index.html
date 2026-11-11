@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>取引先インボイス見張り</title>
+<style>
+:root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1b; --sub:#5b5b57; --line:#d9d9d4; --accent:#0b5cad; --warn:#b3261e; --ok:#1f7a3a; --warnbg:#fdecea; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161615; --card:#21211f; --ink:#ececea; --sub:#a9a9a4; --line:#3a3a37; --accent:#6aa8ec; --warn:#f2867c; --ok:#7cc98f; --warnbg:#3a201e; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 8px 0 4px; }
+h2 { font-size: 1.05rem; margin: 0 0 8px; }
+p.lead { color: var(--sub); margin: 0 0 16px; }
+section.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+label { display:block; font-weight:600; margin: 8px 0 4px; }
+textarea { width:100%; min-height: 120px; font: 14px/1.5 ui-monospace,Consolas,monospace; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
+input[type=date], input[type=file] { max-width:100%; font-size: 15px; color:var(--ink); }
+.row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+button { font-size:15px; padding:9px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
+button.sub { background:transparent; color:var(--accent); }
+button:disabled { opacity:.5; cursor:default; }
+.msg { margin-top:8px; color: var(--warn); white-space: pre-wrap; }
+.note { color: var(--sub); font-size: .9rem; }
+.summary { display:flex; flex-wrap:wrap; gap:8px; margin: 4px 0 10px; }
+.pill { border:1px solid var(--line); border-radius:999px; padding:2px 10px; font-size:.9rem; }
+.pill.alert { border-color: var(--warn); color: var(--warn); }
+.tablewrap { overflow-x:auto; }
+table { border-collapse: collapse; width:100%; font-size: .92rem; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align: top; }
+tr.alert td { background: var(--warnbg); }
+td.st { white-space: nowrap; font-weight:600; }
+tr.alert td.st { color: var(--warn); }
+tr.okrow td.st { color: var(--ok); }
+@media (max-width: 640px) {
+  thead { display:none; }
+  table, tbody, tr, td { display:block; width:100%; }
+  tr { border-bottom:1px solid var(--line); padding:6px 0; }
+  td { border:0; padding:2px 8px; }
+  td:nth-child(1) { font-weight:600; }
+  td:nth-child(4):not(:empty)::before { content:"公表の名称: "; color:var(--sub); }
+  td:nth-child(5) { color: var(--sub); font-size:.88rem; }
+}
+ul.changes { margin: 0; padding-left: 1.2em; }
+footer { color: var(--sub); font-size: .85rem; margin: 18px 0 32px; }
+footer a, .note a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>取引先インボイス見張り</h1>
+<p class="lead">取引先の一覧と国税庁の公表データを照らして、登録が取消・失効になった取引先や、名称が変わった取引先を見つけます。入れたデータはこの画面の中だけで扱い、どこにも送りません。</p>
+
+<section class="card">
+  <h2>1. 取引先の一覧</h2>
+  <p class="note">CSV(見出し: 名前,登録番号,取引日)。取引日は任意で、入れるとその日の時点で判定します。無料の版は先頭の <span id="freeLimit">10</span> 件まで確かめます。</p>
+  <div class="row"><input type="file" id="partnersFile" accept=".csv,text/csv"> <button class="sub" id="sampleBtn" type="button">見本を入れる</button></div>
+  <label for="partnersText">または貼り付け</label>
+  <textarea id="partnersText" placeholder="名前,登録番号,取引日&#10;見本商事株式会社,T9234567890123,"></textarea>
+</section>
+
+<section class="card">
+  <h2>2. 国税庁の公表データ</h2>
+  <p class="note">公表サイトの<a href="https://www.invoice-kohyo.nta.go.jp/download/index.html" rel="noopener" target="_blank">ダウンロード</a>の JSON(全件・差分)か、Web-API の結果の JSON、または見出し行つきの CSV。見出しの無いダウンロード CSV はまだ使えません(列の並びを実物で確かめるまで受け付けません)。公表サイトの検索画面を機械で取ることは規約で禁止されています。</p>
+  <div class="row"><input type="file" id="recordsFile" accept=".json,.csv,application/json,text/csv"></div>
+  <label for="recordsText">または貼り付け</label>
+  <textarea id="recordsText" placeholder='{"announcement":[{"registratedNumber":"T9234567890123","registrationDate":"2023-10-01", ...}]}'></textarea>
+</section>
+
+<section class="card">
+  <h2>3. 確かめる</h2>
+  <div class="row">
+    <label for="onDate" style="margin:0">判定する日</label> <input type="date" id="onDate">
+  </div>
+  <label for="prevFile">前回の結果(任意・この画面で保存した JSON)</label>
+  <div class="row"><input type="file" id="prevFile" accept=".json,application/json"> <button class="sub" id="usePrevBtn" type="button" disabled>この端末の前回を使う</button></div>
+  <div class="row" style="margin-top:10px"><button id="runBtn" type="button">確かめる</button></div>
+  <div class="msg" id="msg" role="alert"></div>
+</section>
+
+<section class="card" id="resultCard" hidden>
+  <h2>結果 <span class="note" id="resultOn"></span></h2>
+  <div class="summary" id="summary"></div>
+  <div id="changesBox" hidden><h2>前回から変わった取引先</h2><ul class="changes" id="changes"></ul></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>名前</th><th>登録番号</th><th>状態</th><th>公表の名称</th><th>メモ</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+  <p class="note" id="skipped"></p>
+  <div class="row" style="margin-top:10px">
+    <button class="sub" id="csvBtn" type="button">CSV で書き出す</button>
+    <button class="sub" id="jsonBtn" type="button">結果を保存(次回の比較用 JSON)</button>
+  </div>
+</section>
+
+<footer>
+  <p id="attribution"></p>
+  <p>国税庁の公式の道具ではなく、税務の助言でもありません。大事な取引は<a href="https://www.invoice-kohyo.nta.go.jp/" rel="noopener" target="_blank">国税庁の公表サイト</a>でも確かめてください。個人事業者はダウンロードデータで氏名が空のため、名称は目で確かめてください。</p>
+  <p><a href="terms.html">利用規約</a> ・ <a href="privacy.html">プライバシーポリシー</a></p>
+</footer>
+</main>
+<script src="watch.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
