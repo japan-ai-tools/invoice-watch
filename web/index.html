@@ -52,6 +52,7 @@ footer a, .note a { color: var(--accent); }
 <main>
 <h1>取引先インボイス見張り</h1>
 <p class="lead">取引先の一覧と国税庁の公表データを照らして、登録が取消・失効になった取引先や、名称が変わった取引先を見つけます。入れたデータはこの画面の中だけで扱い、どこにも送りません。</p>
+<p class="note"><strong>今の版は手動の確認です。</strong>データを入れたときに確かめます。毎日の自動の見張りは準備中です。</p>
 
 <section class="card">
   <h2>1. 取引先の一覧</h2>
@@ -63,7 +64,7 @@ footer a, .note a { color: var(--accent); }
 
 <section class="card">
   <h2>2. 国税庁の公表データ</h2>
-  <p class="note">公表サイトの<a href="https://www.invoice-kohyo.nta.go.jp/download/index.html" rel="noopener" target="_blank">ダウンロード</a>の JSON(全件・差分)か、Web-API の結果の JSON、または見出し行つきの CSV。見出しの無いダウンロード CSV はまだ使えません(列の並びを実物で確かめるまで受け付けません)。公表サイトの検索画面を機械で取ることは規約で禁止されています。</p>
+  <p class="note">Web-API の結果の JSON か、見出し行つきの CSV。公表サイトの<a href="https://www.invoice-kohyo.nta.go.jp/download/index.html" rel="noopener" target="_blank">ダウンロード</a>のファイル(JSON・見出しの無い CSV)は、形を実物で確かめるまでまだ使えません。公表サイトの検索画面を機械で取ることは規約で禁止されています。</p>
   <div class="row"><input type="file" id="recordsFile" accept=".json,.csv,application/json,text/csv"></div>
   <label for="recordsText">または貼り付け</label>
   <textarea id="recordsText" placeholder='{"announcement":[{"registratedNumber":"T9234567890123","registrationDate":"2023-10-01", ...}]}'></textarea>
@@ -75,7 +76,7 @@ footer a, .note a { color: var(--accent); }
     <label for="onDate" style="margin:0">判定する日</label> <input type="date" id="onDate">
   </div>
   <label for="prevFile">前回の結果(任意・この画面で保存した JSON)</label>
-  <div class="row"><input type="file" id="prevFile" accept=".json,application/json"> <button class="sub" id="usePrevBtn" type="button" disabled>この端末の前回を使う</button></div>
+  <div class="row"><input type="file" id="prevFile" accept=".json,application/json"> <button class="sub" id="usePrevBtn" type="button" disabled>この端末の前回を使う</button> <button class="sub" id="clearBtn" type="button" disabled>この端末の記録を消す</button></div>
   <div class="row" style="margin-top:10px"><button id="runBtn" type="button">確かめる</button></div>
   <div class="msg" id="msg" role="alert"></div>
 </section>
