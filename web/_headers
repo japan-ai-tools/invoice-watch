@@ -1,0 +1,6 @@
+# Cloudflare Pages の応答ヘッダー。他サイトへの埋め込み(クリックジャッキング)は <meta> では防げないので、ここで付ける
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
