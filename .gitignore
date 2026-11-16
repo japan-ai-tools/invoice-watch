@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+# 利用者の実データを誤って入れない
+*.local.csv
+*.local.json
