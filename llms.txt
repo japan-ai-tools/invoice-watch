@@ -1,0 +1,22 @@
+# invoice-watch(取引先インボイス見張り)
+
+> Checks a list of business partners (name + Japanese qualified invoice registration number "T" + 13 digits) against the public data of Japan's National Tax Agency (NTA) and returns only the partners whose status changed: registered, cancelled, expired, not yet registered on the transaction date, not found, malformed number, or name mismatch. Python standard library only, no network access in the checker. Unofficial: not made or endorsed by the NTA, no affiliation. Not tax advice.
+
+取引先の一覧(名前・登録番号)を国税庁の適格請求書発行事業者の公表データと照らし、変わった取引先だけを返す道具です。照合の本体は通信しません。
+
+## Use it
+- [README](README.md): install-free usage, CLI exit codes (0 = nothing to check, 1 = needs attention, 2 = could not run), CSV headers
+- [Python API](invoicewatch/watch.py): `load_partners_csv`, `load_public_records`, `check_partners(partners, records, on="YYYY-MM-DD")`, `diff_results(prev, res)`
+- [Daily diff download](invoicewatch/nta_download.py): fetches only the NTA "公表情報ダウンロード" diff page and ZIP files (no scraping of the search screen, which the site terms prohibit)
+- [Browser version](web/index.html): same rules as the Python version, runs on the device (`connect-src 'none'`), free tier checks the first 10 partners
+
+## Facts an agent should keep
+- Being listed in the NTA data does not mean "currently registered": cancelled/expired entries stay published for 7 years. Judge by the transaction date and the cancel/expire dates
+- Corporate numbers are also checked with the corporate-number check digit; sole proprietors are not covered by that check, and their names are blank in the NTA download data
+- Apps that show Web-API data must display the NTA attribution text (`invoicewatch.ATTRIBUTION_API`)
+- Limits: the downloaded JSON/XML formats are not verified yet (use the CSV ZIP); the NTA may correct data retroactively
+
+## Optional
+- [Tests](tests/): `python -m unittest discover -s tests`
+- [License](LICENSE): MIT. Sources: [LICENSES.md](LICENSES.md)
+- Related: [genba-shorui](https://github.com/japan-ai-tools/genba-shorui) (memo → daily report → estimate → qualified invoice, one offline HTML page)
