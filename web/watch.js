@@ -148,15 +148,38 @@
     return r;
   }
 
+  // 公表サイトのダウンロードの CSV(全件・差分)は見出しの行が無く、1行24列。並びは invoicewatch/watch.py の DOWNLOAD_COLUMNS と同じ
+  var DOWNLOAD_COLUMNS = ["sequenceNumber", "registratedNumber", "process", "correct", "kind", "country", "latest",
+    "registrationDate", "updateDate", "disposalDate", "expireDate",
+    "address", "addressPrefectureCode", "addressCityCode",
+    "addressRequest", "addressRequestPrefectureCode", "addressRequestCityCode",
+    "kana", "name", "addressInside", "addressInsidePrefectureCode", "addressInsideCityCode",
+    "tradeName", "popularName_previousName"];
+  var DL_ROW = /^\s*\d+\s*,\s*"?T\d{13}/;
+
+  function downloadRows(text) {
+    var out = [];
+    parseCsv(text).forEach(function (cols, i) {
+      if (!cols.some(function (c) { return String(c).trim() !== ""; })) return;
+      if (cols.length !== DOWNLOAD_COLUMNS.length)
+        throw new Error("ダウンロードの CSV の " + (i + 1) + "行目が " + cols.length + "列です(24列のはず)。国税庁のファイルの形が変わった可能性があります");
+      var o = {};
+      DOWNLOAD_COLUMNS.forEach(function (k, j) { o[k] = cols[j]; });
+      out.push(o);
+    });
+    return out;
+  }
+
   function loadPublicRecords(data) {
     var rows = null;
     if (typeof data === "string") {
-      var t = data.replace(/^﻿/, "").trim();
+      var t = data.replace(/^\ufeff/, "").trim();
       if (t.charAt(0) === "[" || t.charAt(0) === "{") data = JSON.parse(t);
+      else if (DL_ROW.test(t)) rows = downloadRows(t);
       else {
         var c = csvDicts(t);
         var ok = c.heads.some(function (h) { return NUM_KEYS.indexOf(h) >= 0; });
-        if (!ok) throw new Error("CSV の1行目に見出し(登録番号 など)がありません。見出しの無いダウンロードCSVは未対応です。JSON 形式を使ってください");
+        if (!ok) throw new Error("公表データの CSV の形が分かりません(1行目に「登録番号」の見出しも、ダウンロードの CSV の形もありません)");
         rows = c.items;
       }
     }
@@ -171,7 +194,77 @@
       var r = record(raw);
       if (r) (out[r.number] = out[r.number] || []).push(r);
     });
+    // 1件も読めないのに「問題なし」と出さない(Python の本体と同じ)
+    if (!Object.keys(out).length) throw new Error("公表データから登録番号を1件も読めませんでした。ファイルの中身と形を確かめてください");
     return out;
+  }
+
+  // 全件の上に差分を重ねる(古い順に渡す)。同じ番号の記録は履歴として全部残す(Python の merge_records と同じ)
+  function mergeRecords() {
+    var out = {};
+    Array.prototype.forEach.call(arguments, function (part) {
+      Object.keys(part || {}).forEach(function (num) { out[num] = (out[num] || []).concat(part[num]); });
+    });
+    return out;
+  }
+
+  function countRecords(records) {
+    var nums = Object.keys(records);
+    return { numbers: nums.length, records: nums.reduce(function (a, k) { return a + records[k].length; }, 0) };
+  }
+
+  // ZIP(公表サイトの全件・差分)の中の CSV を全部読む。署名(.asc)は読まない。
+  // 通信しない。展開はブラウザ・node に入っている DecompressionStream("deflate-raw") を使う
+  function u16(b, o) { return b[o] | (b[o + 1] << 8); }
+  function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+
+  function inflateRaw(bytes) {
+    if (typeof DecompressionStream === "undefined")
+      return Promise.reject(new Error("このブラウザは ZIP を開けません(DecompressionStream がありません)。ZIP を展開して CSV を入れてください"));
+    var ds = new DecompressionStream("deflate-raw");
+    var w = ds.writable.getWriter();
+    w.write(bytes); w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
+  }
+
+  function readDownloadZip(buf) {
+    var b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    var eocd = -1;
+    for (var i = b.length - 22; i >= Math.max(0, b.length - 22 - 65535); i--) {
+      if (u32(b, i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) return Promise.reject(new Error("ZIP として読めません(終わりの印がありません)"));
+    var n = u16(b, eocd + 10), off = u32(b, eocd + 16), entries = [];
+    var dec = new TextDecoder("utf-8");
+    for (var k = 0; k < n; k++) {
+      if (u32(b, off) !== 0x02014b50) return Promise.reject(new Error("ZIP として読めません(目次が壊れています)"));
+      var method = u16(b, off + 10), csize = u32(b, off + 20), nlen = u16(b, off + 28),
+        xlen = u16(b, off + 30), clen = u16(b, off + 32), loc = u32(b, off + 42);
+      var name = dec.decode(b.subarray(off + 46, off + 46 + nlen));
+      entries.push({ name: name, method: method, csize: csize, loc: loc });
+      off += 46 + nlen + xlen + clen;
+    }
+    var csvs = entries.filter(function (e) { return /\.csv$/i.test(e.name); })
+      .sort(function (a, c) { return a.name < c.name ? -1 : a.name > c.name ? 1 : 0; });
+    if (!csvs.length) return Promise.reject(new Error("ZIP の中に CSV がありません(CSV 形式のファイルを選んでください)"));
+    return Promise.all(csvs.map(function (e) {
+      if (u32(b, e.loc) !== 0x04034b50) return Promise.reject(new Error("ZIP として読めません(" + e.name + ")"));
+      var start = e.loc + 30 + u16(b, e.loc + 26) + u16(b, e.loc + 28);
+      var data = b.subarray(start, start + e.csize);
+      if (e.method === 0) return Promise.resolve(data);
+      if (e.method === 8) return inflateRaw(data);
+      return Promise.reject(new Error("ZIP の圧縮の方式(" + e.method + ")に対応していません"));
+    })).then(function (parts) {
+      var texts = parts.map(function (p) { return new TextDecoder("utf-8").decode(p).replace(/^\ufeff/, "").replace(/\n+$/, ""); });
+      return texts.join("\n") + "\n";
+    });
+  }
+
+  // ファイルの中身(バイト)から公表データを読む。ZIP なら中の CSV、そうでなければ文字にして loadPublicRecords
+  function loadPublicRecordsBytes(buf) {
+    var b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    if (b[0] === 0x50 && b[1] === 0x4b) return readDownloadZip(b).then(loadPublicRecords);
+    try { return Promise.resolve(loadPublicRecords(decodeBytes(b))); } catch (e) { return Promise.reject(e); }
   }
 
   function pick(records) {
@@ -317,7 +410,8 @@
   var api = { decodeBytes: decodeBytes, toDate: toDate, ATTRIBUTION_API: ATTRIBUTION_API, ATTRIBUTION_DOWNLOAD: ATTRIBUTION_DOWNLOAD, FREE_LIMIT: FREE_LIMIT,
     STATUS_JA: STATUS_JA, normalizeRegno: normalizeRegno, loadPublicRecords: loadPublicRecords,
     loadPartnersCsv: loadPartnersCsv, checkPartners: checkPartners, diffResults: diffResults,
-    resultsToCsv: resultsToCsv, parseCsv: parseCsv };
+    resultsToCsv: resultsToCsv, parseCsv: parseCsv, mergeRecords: mergeRecords, countRecords: countRecords,
+    readDownloadZip: readDownloadZip, loadPublicRecordsBytes: loadPublicRecordsBytes, DOWNLOAD_COLUMNS: DOWNLOAD_COLUMNS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.InvoiceWatch = api;
 })(typeof window !== "undefined" ? window : this);
