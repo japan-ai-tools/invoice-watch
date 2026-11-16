@@ -64,8 +64,8 @@ footer a, .note a { color: var(--accent); }
 
 <section class="card">
   <h2>2. 国税庁の公表データ</h2>
-  <p class="note">Web-API の結果の JSON か、見出し行つきの CSV。公表サイトの<a href="https://www.invoice-kohyo.nta.go.jp/download/index.html" rel="noopener" target="_blank">ダウンロード</a>のファイル(JSON・見出しの無い CSV)は、形を実物で確かめるまでまだ使えません。公表サイトの検索画面を機械で取ることは規約で禁止されています。</p>
-  <div class="row"><input type="file" id="recordsFile" accept=".json,.csv,application/json,text/csv"></div>
+  <p class="note">公表サイトの<a href="https://www.invoice-kohyo.nta.go.jp/download/index.html" rel="noopener" target="_blank">ダウンロード</a>の CSV 形式のファイル(ZIP のまま・展開した見出しの無い CSV)、Web-API の結果の JSON、見出し行つきの CSV が使えます。全件と差分を一緒に選ぶと、全件の上に差分を重ねて新しい方で判定します。ファイルはこの端末の中で開くだけで、どこにも送りません。公表サイトの検索画面を機械で取ることは規約で禁止されています。</p>
+  <div class="row"><input type="file" id="recordsFile" multiple accept=".zip,.json,.csv,application/zip,application/json,text/csv"></div>
   <label for="recordsText">または貼り付け</label>
   <textarea id="recordsText" placeholder='{"announcement":[{"registratedNumber":"T9234567890123","registrationDate":"2023-10-01", ...}]}'></textarea>
 </section>
