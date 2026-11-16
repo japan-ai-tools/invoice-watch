@@ -59,7 +59,27 @@
     rd.readAsArrayBuffer(f);
   }
   $("partnersFile").addEventListener("change", function () { readFile(this, function (s) { $("partnersText").value = s; }); });
-  $("recordsFile").addEventListener("change", function () { readFile(this, function (s) { $("recordsText").value = s; }); });
+  // 公表データのファイル(ZIP・見出しの無いダウンロード CSV・JSON・見出しつき CSV)。複数を選ぶと全件の上に差分を重ねる
+  var fileRecords = null, fileNote = "";
+  function fileOrder(a, b) {
+    var fa = /all/i.test(a.name) ? 0 : 1, fb = /all/i.test(b.name) ? 0 : 1;   // 全件(h_all…)を先、次に名前(日付)の順
+    return fa - fb || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  }
+  $("recordsFile").addEventListener("change", function () {
+    var files = Array.prototype.slice.call(this.files || []).sort(fileOrder);
+    if (!files.length) return;
+    fileRecords = null; $("msg").textContent = "読み込み中…";
+    Promise.all(files.map(function (f) {
+      return f.arrayBuffer().then(IW.loadPublicRecordsBytes).catch(function (e) { throw new Error(f.name + ": " + (e.message || e)); });
+    })).then(function (parts) {
+      fileRecords = IW.mergeRecords.apply(null, parts);
+      var c = IW.countRecords(fileRecords);
+      fileNote = "(ファイル " + files.length + "個から読み込み済み: 登録番号 " + c.numbers + "件・記録 " + c.records + "件)";
+      $("recordsText").value = fileNote;
+      $("msg").textContent = "";
+    }).catch(function (e) { fileRecords = null; $("msg").textContent = e.message || String(e); });
+  });
+  $("recordsText").addEventListener("input", function () { fileRecords = null; });
   var prev = null;
   $("prevFile").addEventListener("change", function () {
     readFile(this, function (s) { try { prev = JSON.parse(s); $("msg").textContent = ""; } catch (e) { prev = null; $("msg").textContent = "前回の結果の JSON が読めません"; } });
@@ -117,7 +137,7 @@
       var partners = IW.loadPartnersCsv($("partnersText").value);
       if (!partners.length) throw new Error("取引先の一覧が空です(1行目は見出し: 名前,登録番号,取引日)");
       if (!$("recordsText").value.trim()) throw new Error("国税庁の公表データを入れてください");
-      var records = IW.loadPublicRecords($("recordsText").value);
+      var records = (fileRecords && $("recordsText").value === fileNote) ? fileRecords : IW.loadPublicRecords($("recordsText").value);
       var res = IW.checkPartners(partners, records, $("onDate").value, IW.FREE_LIMIT);
       var changes = prev ? IW.diffResults(prev, res) : null;
       last = res; store(res); refreshStoreButtons();
