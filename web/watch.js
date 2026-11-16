@@ -9,10 +9,10 @@
   // Web-API機能利用規約 第6条の文言(そのまま。変えない)
   var ATTRIBUTION_API = "このサービスは、適格請求書発行事業者公表システムWeb-API機能を利用して取得した情報をもとに作成しているが、" +
     "サービスの内容は国税庁によって保証されたものではない";
-  var ATTRIBUTION_DOWNLOAD = "出典：国税庁適格請求書発行事業者公表サイト(国税庁)(https://www.invoice-kohyo.nta.go.jp/download/index.html)" +
+  var ATTRIBUTION_DOWNLOAD = "出典：国税庁適格請求書発行事業者公表サイト（国税庁）（https://www.invoice-kohyo.nta.go.jp/download/index.html）" +
     "をもとに、取引先の一覧と照らすため加工して作成";
 
-  var FREE_LIMIT = 10; // 無料の版で確かめる取引先の数(SALES_PAGE.md)
+  var FREE_LIMIT = 10; // 無料の版で確かめる取引先の数
 
   var STATUS_JA = {
     registered: "登録中",
@@ -21,9 +21,10 @@
     not_yet: "登録日より前",
     not_found: "公表データに見つからない",
     deleted: "公表データから削除",
-    bad_number: "登録番号の形の誤り"
+    bad_number: "登録番号の形の誤り",
+    no_date: "日付が無く判定できない"
   };
-  var ALERT = { revoked: 1, expired: 1, not_found: 1, deleted: 1, bad_number: 1, not_yet: 1 };
+  var ALERT = { revoked: 1, expired: 1, not_found: 1, deleted: 1, bad_number: 1, not_yet: 1, no_date: 1 };
 
   var NUM_KEYS = ["registratedNumber", "registrationNumber", "registration_number", "number", "登録番号"];
   var KEYMAP = {
@@ -77,14 +78,26 @@
   }
 
   // "2026-11-01" などを "20261101" の数の文字にそろえる(比べるため)。正しくない日付は null
+  var ERA = { "令和": 2018, "R": 2018, "平成": 1988, "H": 1988, "昭和": 1925, "S": 1925 };
+  // 「2026-11-01」「2026年11月1日」「令和8年11月1日」「R8.11.1」などを "2026-11-01" にそろえる。読めない日付は null
   function toDate(s) {
-    s = String(s == null ? "" : s).trim();
-    var m = /^(\d{4})[-\/]?(\d{1,2})[-\/]?(\d{1,2})$/.exec(s);
-    if (!m) return null;
-    var y = +m[1], mo = +m[2], d = +m[3];
+    s = nfkc(s).trim().toUpperCase().replace("元年", "1年");
+    var y, mo, d, m = /^([0-9]{4})(?:[-\/.]|年)?([0-9]{1,2})(?:[-\/.]|月)?([0-9]{1,2})日?$/.exec(s);
+    if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else {
+      m = /^(令和|平成|昭和|R|H|S)\s*([0-9]{1,2})(?:[-\/.]|年)([0-9]{1,2})(?:[-\/.]|月)([0-9]{1,2})日?$/.exec(s);
+      if (!m) return null;
+      y = ERA[m[1]] + (+m[2]); mo = +m[3]; d = +m[4];
+    }
     var t = new Date(Date.UTC(y, mo - 1, d));
     if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) return null;
     return y + "-" + (mo < 10 ? "0" : "") + mo + "-" + (d < 10 ? "0" : "") + d;
+  }
+
+  // Shift_JIS(ExcelのCSV)も読む。UTF-8 で読めなければ shift_jis で読み直す
+  function decodeBytes(buf) {
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^\ufeff/, ""); }
+    catch (e) { return new TextDecoder("shift_jis").decode(buf); }
   }
 
   function today() {
@@ -116,9 +129,12 @@
     var rows = parseCsv(text);
     if (!rows.length) return { heads: [], items: [] };
     var heads = rows[0].map(function (h) { return h.trim(); });
-    var items = rows.slice(1).map(function (r) {
+    var items = rows.slice(1).map(function (r, i) {
       var o = {};
-      heads.forEach(function (h, i) { o[h] = (r[i] || "").trim(); });
+      heads.forEach(function (h, j) { o[h] = (r[j] || "").trim(); });
+      // 見出しより列が多い行(名前に引用符なしのカンマ など)。余った列は使わない
+      var extra = r.slice(heads.length).some(function (v) { return String(v).trim() !== ""; });
+      if (extra) Object.defineProperty(o, "__extraLine", { value: i + 2, enumerable: false });
       return o;
     });
     return { heads: heads, items: items };
@@ -167,13 +183,32 @@
     return best.r;
   }
 
+  // 日付が無くて決められないときは「登録中」にせず no_date(要確認)
   function statusOn(rec, on) {
     if (rec.process === "99") return "deleted";
     var reg = toDate(rec.registrationDate), dis = toDate(rec.disposalDate), exp = toDate(rec.expireDate);
+    if ((rec.process === "04" && !dis) || (rec.process === "03" && !exp)) return "no_date";
     if (dis && dis <= on) return "revoked";
     if (exp && exp <= on) return "expired";
-    if (reg && reg > on) return "not_yet";
+    if (!reg) return "no_date";
+    if (reg > on) return "not_yet";
     return "registered";
+  }
+
+  // 取引日があり履歴が複数なら、その日に登録中だった期間の記録を優先する(再登録した事業者)
+  function choose(records, day, byDate) {
+    if (byDate && records.length > 1) {
+      var hits = records.filter(function (r) { return statusOn(r, day) === "registered"; });
+      if (hits.length) return pick(hits);
+      // どの期間にも入らない日は、その日より前に始まった一番新しい期間(取消・失効した前の登録)で判定する
+      var best = null;
+      records.forEach(function (r) {
+        var reg = toDate(r.registrationDate);
+        if (reg && reg <= day && (!best || reg > best.reg)) best = { r: r, reg: reg };
+      });
+      if (best) return best.r;
+    }
+    return pick(records);
   }
 
   function loadPartnersCsv(text) {
@@ -183,7 +218,9 @@
     c.items.forEach(function (row) {
       var nm = get(row, nameK), no = get(row, numK), dy = get(row, dayK);
       if (!(nm || no)) return;
-      out.push({ name: nm, registration_number: no, date: dy });
+      var p = { name: nm, registration_number: no, date: dy };
+      if (row.__extraLine) p.notes = [row.__extraLine + "行目は見出しより列が多いので、余った列は使っていません(名前にカンマがあるなら \"\" で囲んでください)"];
+      out.push(p);
     });
     return out;
   }
@@ -194,15 +231,25 @@
     partners.forEach(function (p, i) {
       if (limit != null && i >= limit) { skipped++; return; }
       var nr = normalizeRegno(p.registration_number), num = nr[0];
-      var item = { name: p.name || "", input: p.registration_number || "", number: num, notes: nr[1].slice(),
+      var item = { name: p.name || "", input: p.registration_number || "", number: num, date: p.date || "",
+        notes: (p.notes || []).concat(nr[1]),
         status: null, public_name: "", name_match: null, registration_date: "", disposal_date: "", expire_date: "" };
       if (!num) item.status = "bad_number";
       else if (!records[num]) item.status = "not_found";
       else {
-        var rec = pick(records[num]);
         var pd = toDate(p.date), day = pd || on;
+        var rec = choose(records[num], day, !!pd);
         item.status = statusOn(rec, day);
-        if (p.date && pd) item.notes.push("取引日 " + day + " の時点で判定");
+        if (item.status === "not_yet" && records[num].length === 1) {
+          item.notes.push("このデータには今の登録期間しかありません。前に登録していた期間(再登録)の取引かどうかは、履歴つきのデータで確かめてください");
+        } else if (item.status === "no_date") {
+          item.notes.push("公表データの記録に登録日(取消・失効なら その日付)が無く、判定できません。公表サイトで確かめてください");
+        }
+        if (pd) item.notes.push("取引日 " + day + " の時点で判定");
+        else if (String(p.date || "").trim()) {
+          item.date_unreadable = true;
+          item.notes.push("取引日「" + p.date + "」が読めません。" + on + " の時点で仮に判定したので、取引日を直して確かめてください");
+        }
         item.public_name = rec.name || "";
         item.registration_date = rec.registrationDate || "";
         item.disposal_date = rec.disposalDate || "";
@@ -215,7 +262,7 @@
         }
       }
       item.status_ja = STATUS_JA[item.status];
-      item.alert = !!ALERT[item.status] || item.name_match === false;
+      item.alert = !!ALERT[item.status] || item.name_match === false || !!item.date_unreadable;
       results.push(item);
     });
     var summary = {};
@@ -227,13 +274,16 @@
   }
 
   function diffResults(prev, cur) {
-    function index(res) {
-      var rows = (res && res.results) || res || [];
+    function rowsOf(res) { return (res && res.results) || res || []; }
+    // 同じ名前・番号で取引日だけ違う行を別々に比べる。取引日を持たない古い版の結果と比べるときは、取引日を見ない
+    var oldRows = rowsOf(prev || { results: [] });
+    var useDate = oldRows.every(function (r) { return Object.prototype.hasOwnProperty.call(r, "date"); });
+    function index(rows) {
       var m = {};
-      rows.forEach(function (r) { m[(r.number || r.input) + "\u0000" + r.name] = r; });
+      rows.forEach(function (r) { m[(r.number || r.input) + "\u0000" + r.name + (useDate ? "\u0000" + (r.date || "") : "")] = r; });
       return m;
     }
-    var a = index(prev || { results: [] }), b = index(cur), changes = [];
+    var a = index(oldRows), b = index(rowsOf(cur)), changes = [];
     Object.keys(b).forEach(function (k) {
       var r = b[k], o = a[k];
       if (!o) { changes.push({ kind: "new", name: r.name, number: r.number, now: r.status_ja }); return; }
@@ -248,7 +298,12 @@
 
   // 結果を CSV に(Excel で開けるよう BOM は呼び出し側でつける)
   function resultsToCsv(res) {
-    function cell(v) { v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    // 先頭が = + - @ タブ 改行 のセルは、Excel が式として動かさないよう ' を付けて引用符で囲む(CSVインジェクション対策)
+    function cell(v) {
+      v = v == null ? "" : String(v);
+      if (/^[=+\-@\t\r\n]/.test(v)) return '"\'' + v.replace(/"/g, '""') + '"';
+      return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }
     var head = ["名前", "登録番号", "状態", "公表の名称", "名称の一致", "登録年月日", "取消年月日", "失効年月日", "要確認", "メモ"];
     var lines = [head.join(",")];
     res.results.forEach(function (r) {
@@ -259,7 +314,7 @@
     return lines.join("\r\n") + "\r\n";
   }
 
-  var api = { ATTRIBUTION_API: ATTRIBUTION_API, ATTRIBUTION_DOWNLOAD: ATTRIBUTION_DOWNLOAD, FREE_LIMIT: FREE_LIMIT,
+  var api = { decodeBytes: decodeBytes, toDate: toDate, ATTRIBUTION_API: ATTRIBUTION_API, ATTRIBUTION_DOWNLOAD: ATTRIBUTION_DOWNLOAD, FREE_LIMIT: FREE_LIMIT,
     STATUS_JA: STATUS_JA, normalizeRegno: normalizeRegno, loadPublicRecords: loadPublicRecords,
     loadPartnersCsv: loadPartnersCsv, checkPartners: checkPartners, diffResults: diffResults,
     resultsToCsv: resultsToCsv, parseCsv: parseCsv };
