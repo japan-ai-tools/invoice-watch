@@ -4,7 +4,9 @@
   var IW = window.InvoiceWatch;
   var SAMPLE_PARTNERS = "名前,登録番号,取引日\n見本商事株式会社,T9234567890123,\n(株)見本工業,T9111111111111,\n見本運輸合同会社,Ｔ３９８７６５４３２１０９８,\n見本デザイン(個人),T9555555555555,\n番号まちがい株式会社,T123,\n載っていない株式会社,T1234567890123,\n";
   var SAMPLE_RECORDS = {"lastUpdateDate": "2026-11-10", "count": "5", "divideNumber": "1", "divideSize": "1", "announcement": [{"sequenceNumber": "1", "registratedNumber": "T9234567890123", "process": "01", "correct": "0", "kind": "2", "country": "1", "latest": "1", "registrationDate": "2023-10-01", "updateDate": "2023-10-01", "disposalDate": "", "expireDate": "", "name": "見本商事株式会社"}, {"sequenceNumber": "2", "registratedNumber": "T9111111111111", "process": "04", "correct": "0", "kind": "2", "country": "1", "latest": "1", "registrationDate": "2023-10-01", "updateDate": "2026-11-05", "disposalDate": "2026-11-01", "expireDate": "", "name": "株式会社見本工業"}, {"sequenceNumber": "3", "registratedNumber": "T3987654321098", "process": "02", "correct": "0", "kind": "2", "country": "1", "latest": "1", "registrationDate": "2024-04-01", "updateDate": "2026-10-20", "disposalDate": "", "expireDate": "", "name": "新見本ロジスティクス合同会社"}, {"sequenceNumber": "4", "registratedNumber": "T9555555555555", "process": "01", "correct": "0", "kind": "1", "country": "1", "latest": "1", "registrationDate": "2023-10-01", "updateDate": "2023-10-01", "disposalDate": "", "expireDate": "2026-06-30", "name": ""}]};
-  var STORE_KEY = "invoice-watch:last";
+  // 結果は判定した日ごとに保存する(同じ日に2回確かめても、前の日の結果=比較の土台は残る)
+  var STORE_PREFIX = "invoice-watch:result:";
+  var LEGACY_KEY = "invoice-watch:last";
   var $ = function (id) { return document.getElementById(id); };
   var last = null;
 
@@ -13,16 +15,48 @@
   var t = new Date();
   $("onDate").value = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
 
-  function stored() { try { var s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
-  function store(res) { try { localStorage.setItem(STORE_KEY, JSON.stringify(res)); } catch (e) { /* 保存できなくても動く */ } }
-  if (stored()) $("usePrevBtn").disabled = false;
+  function storedKeys() {
+    var ks = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && (k.indexOf(STORE_PREFIX) === 0 || k === LEGACY_KEY)) ks.push(k);
+      }
+    } catch (e) { /* 使えない端末 */ }
+    return ks;
+  }
+  // 判定する日(before)より前の、一番新しい保存結果。無ければ null
+  function stored(before) {
+    try {
+      var dates = storedKeys().filter(function (k) { return k !== LEGACY_KEY; })
+        .map(function (k) { return k.slice(STORE_PREFIX.length); })
+        .filter(function (d) { return !before || d < before; }).sort();
+      var k = dates.length ? STORE_PREFIX + dates[dates.length - 1] : LEGACY_KEY;
+      var s = localStorage.getItem(k);
+      return s ? JSON.parse(s) : null;
+    } catch (e) { return null; }
+  }
+  function store(res) { try { localStorage.setItem(STORE_PREFIX + res.on, JSON.stringify(res)); } catch (e) { /* 保存できなくても動く */ } }
+  function refreshStoreButtons() {
+    var n = storedKeys().length;
+    $("usePrevBtn").disabled = n === 0;
+    $("clearBtn").disabled = n === 0;
+  }
+  refreshStoreButtons();
+  $("clearBtn").addEventListener("click", function () {
+    try { storedKeys().forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* 何もしない */ }
+    prev = null;
+    $("usePrevBtn").textContent = "この端末の前回を使う";
+    refreshStoreButtons();
+    $("msg").textContent = "この端末に残した結果(取引先の名前を含む)を消しました";
+  });
 
   function readFile(input, cb) {
     var f = input.files && input.files[0];
     if (!f) return;
     var rd = new FileReader();
-    rd.onload = function () { cb(String(rd.result)); };
-    rd.readAsText(f, "utf-8");
+    rd.onload = function () { cb(IW.decodeBytes(rd.result)); };
+    rd.readAsArrayBuffer(f);
   }
   $("partnersFile").addEventListener("change", function () { readFile(this, function (s) { $("partnersText").value = s; }); });
   $("recordsFile").addEventListener("change", function () { readFile(this, function (s) { $("recordsText").value = s; }); });
@@ -30,7 +64,11 @@
   $("prevFile").addEventListener("change", function () {
     readFile(this, function (s) { try { prev = JSON.parse(s); $("msg").textContent = ""; } catch (e) { prev = null; $("msg").textContent = "前回の結果の JSON が読めません"; } });
   });
-  $("usePrevBtn").addEventListener("click", function () { prev = stored(); $("msg").textContent = prev ? "" : "この端末に前回の結果がありません"; this.textContent = "この端末の前回を使います"; });
+  $("usePrevBtn").addEventListener("click", function () {
+    prev = stored($("onDate").value);
+    $("msg").textContent = prev ? "" : "この端末に、判定する日より前の結果がありません";
+    this.textContent = prev ? "この端末の前回(" + prev.on + ")を使います" : "この端末の前回を使う";
+  });
   $("sampleBtn").addEventListener("click", function () {
     $("partnersText").value = SAMPLE_PARTNERS;
     $("recordsText").value = JSON.stringify(SAMPLE_RECORDS, null, 1);
@@ -82,7 +120,7 @@
       var records = IW.loadPublicRecords($("recordsText").value);
       var res = IW.checkPartners(partners, records, $("onDate").value, IW.FREE_LIMIT);
       var changes = prev ? IW.diffResults(prev, res) : null;
-      last = res; store(res); $("usePrevBtn").disabled = false;
+      last = res; store(res); refreshStoreButtons();
       render(res, changes);
     } catch (e) { $("msg").textContent = e.message || String(e); }
   });
