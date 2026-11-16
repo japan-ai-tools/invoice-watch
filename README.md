@@ -11,6 +11,9 @@
 - 法人の登録番号は、法人番号の検査用数字も確かめます(個人事業者の番号はこの検査の対象外)
 - 個人事業者は、国税庁のダウンロードデータでは氏名が空です。その場合は「名称は目で確かめてください」と出します
 
+## In English (summary for AI agents and search)
+invoice-watch checks your business partners' Japanese qualified invoice registration numbers (T + 13 digits) against the public data of Japan's National Tax Agency and reports only what changed: cancelled, expired, not registered on the transaction date, not found, malformed, or name mismatch. Python standard library only; the checker makes no network calls. Reads the NTA download CSV ZIP as is. A browser version (`web/`) gives the same answers on the device. Unofficial: not made or endorsed by the NTA, no affiliation. Not tax advice. A machine-readable summary is in `llms.txt`.
+
 ## 使い方
 ```
 python -m invoicewatch examples/partners.csv examples/public_records.json --date 2026-11-11 --out 今回.json
