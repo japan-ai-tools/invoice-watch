@@ -161,5 +161,95 @@ class TestInputEdgesJs(unittest.TestCase):
         self.assertEqual(js["notes"], py["notes"])
 
 
+NODE_DL = r"""
+const IW = require(process.argv[1]);
+const fs = require('fs');
+const files = JSON.parse(process.argv[2]);
+const p = IW.loadPartnersCsv(fs.readFileSync(process.argv[3], 'utf8'));
+(async () => {
+  const parts = [];
+  for (const f of files) parts.push(await IW.loadPublicRecordsBytes(new Uint8Array(fs.readFileSync(f))));
+  const recs = IW.mergeRecords(...parts);
+  const out = {count: IW.countRecords(recs), res: IW.checkPartners(p, recs, process.argv[4], null), errors: {}};
+  for (const [k, t] of Object.entries({cols: '1,"T9234567890123",01,0\n', empty: '[]', heads: 'a,b\n1,2\n'})) {
+    try { IW.loadPublicRecords(t); out.errors[k] = null; } catch (e) { out.errors[k] = e.message; }
+  }
+  try { await IW.loadPublicRecordsBytes(new Uint8Array(fs.readFileSync(process.argv[5]))); out.errors.nocsv = null; }
+  catch (e) { out.errors.nocsv = e.message; }
+  process.stdout.write(JSON.stringify(out));
+})().catch(e => { process.stderr.write(String(e && e.stack || e)); process.exit(1); });
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い")
+class TestDownloadFilesJs(unittest.TestCase):
+    """ブラウザ版でも、公表サイトのダウンロード(見出しの無い24列の CSV と、その ZIP)を Python と同じに読む"""
+
+    def make(self, d):
+        import io
+        import zipfile
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_invoicewatch import dl_row
+
+        def z(name, text, method):
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, "w", method) as f:
+                f.writestr(name, text)
+                f.writestr(name + ".asc", "-----BEGIN PGP SIGNATURE-----")
+            return b.getvalue()
+        full_txt = "\n".join([dl_row(1, "T9234567890123", "01", upd="2026-10-01"),
+                              dl_row(2, "T1234567890124", "01", reg="2026-11-12", name="見本,工務店")]) + "\n"
+        diff_txt = dl_row(1, "T9234567890123", "03", upd="2026-11-12", exp="2026-11-13") + "\n"
+        files = {"full.zip": z("h_all_20261101_005.csv", full_txt, zipfile.ZIP_DEFLATED),
+                 "diff.zip": z("diff_20261113.csv", diff_txt, zipfile.ZIP_STORED),
+                 "diff.csv": ("﻿" + diff_txt).encode("utf-8"),
+                 "nocsv.zip": z("readme.txt", "x", zipfile.ZIP_DEFLATED)}
+        for k, v in files.items():
+            (d / k).write_bytes(v)
+        (d / "p.csv").write_text("名前,登録番号\n見本商事株式会社,T9234567890123\n見本工務店,T1234567890124\n", encoding="utf-8")
+        return files
+
+    def run_js(self, d, names, on="2026-11-16"):
+        r = subprocess.run(["node", "-e", NODE_DL, str(WEB / "watch.js"), json.dumps([str(d / n) for n in names]),
+                            str(d / "p.csv"), on, str(d / "nocsv.zip")], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if r.returncode != 0:
+            raise AssertionError(r.stderr)
+        return json.loads(r.stdout)
+
+    def test_zip_deflate_and_stored_same_as_python(self):
+        import tempfile
+        from invoicewatch import count_records, merge_records
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            files = self.make(d)
+            for names in (["full.zip", "diff.zip"], ["full.zip", "diff.csv"]):
+                js = self.run_js(d, names)
+                recs = merge_records(*[load_public_records(files[n]) for n in names])
+                p = load_partners_csv((d / "p.csv").read_text(encoding="utf-8"))
+                py = check_partners(p, recs, on="2026-11-16")
+                self.assertEqual(js["count"], count_records(recs), names)
+                self.assertEqual(js["count"], {"numbers": 2, "records": 3})
+                for a, b in zip(js["res"]["results"], py["results"]):
+                    self.assertEqual({k: a[k] for k in KEYS}, {k: b[k] for k in KEYS}, names)
+                self.assertEqual(js["res"]["results"][0]["status"], "expired")   # 差分が全件に勝つ
+                self.assertEqual(js["res"]["results"][1]["public_name"], "見本,工務店")   # 引用符の中のカンマ
+
+    def test_errors_not_silent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.make(d)
+            e = self.run_js(d, ["diff.csv"])["errors"]
+        self.assertIn("24列のはず", e["cols"])
+        self.assertIn("1件も読めませんでした", e["empty"])
+        self.assertIn("形が分かりません", e["heads"])
+        self.assertIn("CSV がありません", e["nocsv"])
+
+    def test_page_accepts_zip(self):
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        self.assertIn(".zip", html)
+        self.assertIn("multiple", html)
+
+
 if __name__ == "__main__":
     unittest.main()
