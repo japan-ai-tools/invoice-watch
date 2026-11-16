@@ -38,7 +38,7 @@ def run_node(on="2026-11-11", limit="-"):
     return json.loads(r.stdout)
 
 
-KEYS = ("name", "input", "number", "notes", "status", "status_ja", "public_name", "name_match",
+KEYS = ("name", "input", "number", "date", "notes", "status", "status_ja", "public_name", "name_match",
         "registration_date", "disposal_date", "expire_date", "alert")
 
 
@@ -102,6 +102,63 @@ class TestNoNetwork(unittest.TestCase):
     def test_legal_pages(self):
         for f in ("terms.html", "privacy.html"):
             self.assertTrue((WEB / f).exists(), f)
+
+
+NODE_EDGES = r'''
+const IW = require(process.argv[1]);
+const dates = JSON.parse(process.argv[2]);
+const sj = Buffer.from(process.argv[3], 'hex');
+const res = {results: [{name: '=HYPERLINK("http://x")', input: '+SUM(1)', number: '@x', status_ja: '-1', public_name: '\tA',
+  registration_date: '', disposal_date: '', expire_date: '', alert: false, notes: ['ok']}]};
+process.stdout.write(JSON.stringify({dates: dates.map(IW.toDate), sjis: IW.decodeBytes(new Uint8Array(sj)),
+  csv: IW.resultsToCsv(res)}));
+'''
+
+DATES = ["2026年10月31日", "令和8年10月31日", "R8.10.31", "Ｒ８．１０．３１", "令和元年5月1日", "2026/13/01", "あした"]
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い")
+class TestInputEdgesJs(unittest.TestCase):
+    def run_edges(self):
+        r = subprocess.run(["node", "-e", NODE_EDGES, str(WEB / "watch.js"), json.dumps(DATES, ensure_ascii=False),
+                            "名前,登録番号".encode("cp932").hex()], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if r.returncode != 0:
+            raise AssertionError(r.stderr)
+        return json.loads(r.stdout)
+
+    def test_dates_same_as_python(self):
+        from invoicewatch.watch import _to_date
+        js = self.run_edges()["dates"]
+        py = [(_to_date(d).isoformat() if _to_date(d) else None) for d in DATES]
+        self.assertEqual(js, py)
+        self.assertEqual(js[0], "2026-10-31")
+        self.assertIsNone(js[5])
+
+    def test_shift_jis_decoded(self):
+        self.assertEqual(self.run_edges()["sjis"], "名前,登録番号")
+
+    def test_csv_formula_neutralized(self):
+        csv = self.run_edges()["csv"]
+        row = csv.splitlines()[1]
+        for bad in (',=HYPERLINK', ',+SUM', ',@x', ',-1'):
+            self.assertNotIn(bad, "," + row)
+        self.assertIn('"\'=HYPERLINK(""http://x"")"', row)
+        self.assertIn('"\'@x"', row)
+        self.assertIn('"\'-1"', row)
+
+    def test_unreadable_date_same_as_python(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "p.csv"
+            lines = (EX / "partners.csv").read_text(encoding="utf-8-sig").splitlines()
+            f.write_text(lines[0].rstrip() + ("" if "取引日" in lines[0] else ",取引日") + "\n" + lines[1].split(",")[0] + "," + lines[1].split(",")[1] + ",2026/13/01\n" + lines[2] + "\n", encoding="utf-8")
+            r = subprocess.run(["node", "-e", NODE_RUN, str(WEB / "watch.js"), str(f), str(EX / "public_records.json"), "2026-11-11", "-"],
+                               capture_output=True, text=True, encoding="utf-8", timeout=60)
+            p = load_partners_csv(f.read_text(encoding="utf-8"))
+        js = json.loads(r.stdout)["res"]["results"][0]
+        py = check_partners(p, load_public_records((EX / "public_records.json").read_text(encoding="utf-8")), on="2026-11-11")["results"][0]
+        self.assertTrue(js["alert"] and py["alert"])
+        self.assertEqual(js["notes"], py["notes"])
 
 
 if __name__ == "__main__":
