@@ -1,5 +1,7 @@
 # 取引先インボイス見張り(invoice-watch) 0.2.1
 
+**Japan qualified invoice registration number (T-number) monitor**: finds business partners whose registration was cancelled or expired, using the public data of Japan's National Tax Agency. Offline, Python standard library only. English summary below.
+
 取引先の一覧(名前・登録番号)を、国税庁の適格請求書発行事業者の公表データと照らして、
 **登録中・取消・失効・登録日より前・見つからない・形の誤り** と **名称の食い違い** を返します。
 前回の結果を渡すと **変わった取引先だけ** を返します(毎日の見張り用)。
