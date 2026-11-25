@@ -121,6 +121,8 @@ class TestEdgesSameInJs(unittest.TestCase):
         prev = check_partners(partners_hist(), recs, on="2026-11-11")
         cur = json.loads(json.dumps(prev))
         cur["results"][1]["status"] = "registered"
+        prev["results"][0]["public_name"] = prev["results"][0].get("public_name") or "見本商事株式会社"
+        cur["results"][0]["public_name"] = ""  # ダウンロードデータで名称が空 → 名称の変更にしない(0.2.2)
         arg = {"partners": partners_hist(), "history": {"announcement": HISTORY},
                "partners2": partners_nodate(), "nodates": {"announcement": NO_DATES},
                "extra": PARTNERS_EXTRA, "prev": prev, "cur": cur}
@@ -137,3 +139,4 @@ class TestEdgesSameInJs(unittest.TestCase):
         self.assertEqual(js["extra"], load_partners_csv(PARTNERS_EXTRA))
         self.assertIsNone(js["arabic"][0])
         self.assertEqual(js["diff"], diff_results(prev, cur))
+        self.assertNotIn("name", [c["kind"] for c in js["diff"]])
