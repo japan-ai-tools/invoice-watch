@@ -381,7 +381,8 @@
       var r = b[k], o = a[k];
       if (!o) { changes.push({ kind: "new", name: r.name, number: r.number, now: r.status_ja }); return; }
       if (o.status !== r.status) changes.push({ kind: "status", name: r.name, number: r.number, before: STATUS_JA[o.status] || o.status, now: r.status_ja });
-      if ((o.public_name || "") !== (r.public_name || "") && o.public_name) changes.push({ kind: "name", name: r.name, number: r.number, before: o.public_name, now: r.public_name });
+      // 今回の名称が空なのは「載っていない」(個人事業者の氏名はダウンロードデータに無い)。名称の変更とは言わない
+      if (o.public_name && r.public_name && o.public_name !== r.public_name) changes.push({ kind: "name", name: r.name, number: r.number, before: o.public_name, now: r.public_name });
     });
     Object.keys(a).forEach(function (k) {
       if (!b[k]) { var o = a[k]; changes.push({ kind: "removed", name: o.name, number: o.number, before: STATUS_JA[o.status] || o.status }); }
