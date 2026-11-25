@@ -1,4 +1,4 @@
-# 取引先インボイス見張り(invoice-watch) 0.2.1
+# 取引先インボイス見張り(invoice-watch) 0.2.2
 
 **Japan qualified invoice registration number (T-number) monitor**: finds business partners whose registration was cancelled or expired, using the public data of Japan's National Tax Agency. Offline, Python standard library only. English summary below.
 
@@ -53,6 +53,7 @@ python -m invoicewatch.nta_download 公表データ/
 # 全件(毎月)→ 差分(日付順)の順に渡すと、後のものが前のものに重なる
 python -m invoicewatch 取引先.csv 公表データ/h_all_20261101_csv_005.zip 公表データ/diff_20261112.zip 公表データ/diff_20261113.zip --prev 前回.json --out 今回.json
 ```
+- 個人事業者の氏名はダウンロードデータから削除されています(公表サイト よくある質問 3-3)。前回は名称があり今回は空、というときは「名称の変更」とは知らせません(0.2.2)
 - 読めた登録番号の数を毎回表示します。1件も読めなければ「問題なし」にせず止まります(終了コード 2)
 - 差分を取る部分が使うのは「公表情報ダウンロード」の差分のページと ZIP だけです。サイト利用規約が禁止している「検索機能をプログラムで取ること」はしません
 
