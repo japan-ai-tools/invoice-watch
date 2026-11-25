@@ -125,6 +125,17 @@ class TestDiff(unittest.TestCase):
         self.assertNotIn(("見本商事株式会社", "status"), names)
         self.assertEqual(diff_results(after, after), [])
 
+    def test_name_missing_is_not_a_change(self):
+        # 個人事業者の氏名はダウンロードデータで空。Web-API(氏名あり)→ダウンロード(空)に替えても名称の変更にしない
+        p, r = sample()
+        a = check_partners(p, r, on="2026-11-11")
+        b = json.loads(json.dumps(a))
+        a["results"][0]["public_name"] = "見本 太郎"
+        b["results"][0]["public_name"] = ""
+        self.assertEqual([c for c in diff_results(a, b) if c["kind"] == "name"], [])
+        b["results"][0]["public_name"] = "見本 次郎"
+        self.assertEqual([c["kind"] for c in diff_results(a, b) if c["kind"] == "name"], ["name"])
+
     def test_new_and_removed(self):
         p, r = sample()
         a = check_partners(p[:2], r, on="2026-11-11")
