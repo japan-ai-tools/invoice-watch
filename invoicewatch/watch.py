@@ -369,7 +369,9 @@ def diff_results(prev, cur):
         if o.get("status") != r.get("status"):
             changes.append({"kind": "status", "name": r["name"], "number": r["number"],
                             "before": STATUS_JA.get(o.get("status"), o.get("status")), "now": r["status_ja"]})
-        if (o.get("public_name") or "") != (r.get("public_name") or "") and o.get("public_name"):
+        # 今回の名称が空なのは「変わった」ではなく「載っていない」(個人事業者の氏名はダウンロードデータから削除される。
+        # 公表サイト よくある質問 3-3・3-5)。Web-API の結果からダウンロードに切り替えた日に、名称の変更と誤って知らせない
+        if o.get("public_name") and r.get("public_name") and o.get("public_name") != r.get("public_name"):
             changes.append({"kind": "name", "name": r["name"], "number": r["number"],
                             "before": o.get("public_name"), "now": r.get("public_name")})
     for k, o in a.items():
